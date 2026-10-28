@@ -9,7 +9,7 @@ export async function POST(req: NextRequest) {
   let createdGroupId: string | null = null;
   let createdMemberId: string | null = null;
 
-  const { tablesDB, teams } = createAdminClient();
+  const { tablesDB, teams } = createAdminClient(req);
   const databaseId = APPWRITE_CONFIG.databaseId;
 
   try {

@@ -12,7 +12,7 @@ export async function DELETE(
   try {
     const { user } = await verifyAuth(req);
     const { id: expenseId } = await params;
-    const { tablesDB } = createAdminClient();
+    const { tablesDB } = createAdminClient(req);
     const databaseId = APPWRITE_CONFIG.databaseId;
 
     // 1. Fetch expense to verify ownership/group
@@ -82,7 +82,7 @@ export async function PATCH(
       splits,
     } = body;
 
-    const { tablesDB } = createAdminClient();
+    const { tablesDB } = createAdminClient(req);
     const databaseId = APPWRITE_CONFIG.databaseId;
 
     // 1. Fetch existing expense

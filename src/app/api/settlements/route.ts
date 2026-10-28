@@ -31,7 +31,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { tablesDB } = createAdminClient();
+    const { tablesDB } = createAdminClient(req);
     const databaseId = APPWRITE_CONFIG.databaseId;
 
     // 1. Verify group

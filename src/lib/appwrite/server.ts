@@ -6,14 +6,15 @@ import { APPWRITE_CONFIG } from './config';
  * Used ONLY in server-side route handlers and CLI scripts for privileged operations
  * (creating databases, tables, columns, indexes, teams, and membership assignments).
  */
-export function createAdminClient() {
-  const apiKey = APPWRITE_CONFIG.apiKey;
+export function createAdminClient(req?: Request) {
+  const headerKey = req?.headers?.get('x-appwrite-key');
+  const apiKey = headerKey || APPWRITE_CONFIG.apiKey;
   const endpoint = APPWRITE_CONFIG.endpoint;
   const projectId = APPWRITE_CONFIG.projectId;
 
   if (!apiKey || !projectId) {
     throw new Error(
-      'Missing APPWRITE_API_KEY or APPWRITE_PROJECT_ID in server environment'
+      'Missing APPWRITE_API_KEY, APPWRITE_SITE_API_KEY, or x-appwrite-key in server environment'
     );
   }
 
