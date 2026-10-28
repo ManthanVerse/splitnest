@@ -313,6 +313,9 @@ export async function setupSplitNestDatabase() {
     onDelete: RelationMutate.Restrict, // Preserves accounting ledger integrity
   });
   await ensureIndex('expenses', 'idx_expenses_group_date', TablesDBIndexType.Key, ['expenseDate']);
+  await ensureIndex('expenses', 'idx_expenses_amount', TablesDBIndexType.Key, ['amountMinor']);
+  await ensureIndex('expenses', 'idx_expenses_category', TablesDBIndexType.Key, ['category']);
+  await ensureIndex('expenses', 'idx_expenses_description_search', TablesDBIndexType.Fulltext, ['description']);
 
   // 6. Columns for Splits
   console.log('\n--- Configuring "splits" table columns & relationships ---');

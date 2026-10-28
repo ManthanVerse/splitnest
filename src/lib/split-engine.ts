@@ -218,6 +218,47 @@ export function calculateMinimalSettlements(
 }
 
 /**
+ * Calculates the total number of naive, receipt-by-receipt repayment transactions.
+ * If roommates had to pay back the payer for every individual expense they shared,
+ * this is how many separate transfers would be required.
+ */
+export function calculateNaiveTransferCount(
+  splits: { memberId: string; shareMinor: number; payerMemberId?: string }[]
+): number {
+  return splits.filter(
+    (s) => s.shareMinor > 0 && s.payerMemberId && s.memberId !== s.payerMemberId
+  ).length;
+}
+
+/**
+ * Calculates bilateral (pairwise) debt count:
+ * Groups all transactions between pairs of members (A <-> B) into a single net debt.
+ * Still suffers from circular debt chains (A -> B -> C -> A or A -> B -> C -> D).
+ */
+export function calculatePairwiseTransferCount(
+  splits: { memberId: string; shareMinor: number; payerMemberId?: string }[]
+): number {
+  // map key: "smallerId:largerId", value: net amount from smaller to larger
+  const pairNet = new Map<string, number>();
+
+  for (const s of splits) {
+    if (!s.payerMemberId || s.memberId === s.payerMemberId || s.shareMinor <= 0) {
+      continue;
+    }
+    const [m1, m2] = [s.memberId, s.payerMemberId].sort();
+    const key = `${m1}:${m2}`;
+    const sign = s.memberId === m1 ? 1 : -1;
+    pairNet.set(key, (pairNet.get(key) || 0) + sign * s.shareMinor);
+  }
+
+  let count = 0;
+  for (const val of pairNet.values()) {
+    if (val !== 0) count++;
+  }
+  return count;
+}
+
+/**
  * Formats integer minor units to user-friendly currency string (e.g. 1050 -> "$10.50").
  */
 export function formatCurrency(amountMinor: number, currency = 'USD'): string {

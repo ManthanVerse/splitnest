@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useCallback, useMemo, Suspense } from 'react';
 import { useAuth } from '@/context/AuthContext';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { Header } from '@/components/Header';
 import { getAppwriteClient, APPWRITE_CONFIG } from '@/lib/appwrite/client';
 import { Query, Channel } from 'appwrite';
@@ -19,8 +19,15 @@ import {
   validateCustomSplits,
   calculateBalances,
   calculateMinimalSettlements,
+  calculateNaiveTransferCount,
   formatCurrency,
 } from '@/lib/split-engine';
+import { ExpenseFiltersBar, FilterState } from '@/components/ExpenseFiltersBar';
+import { SettleUpVisualizer } from '@/components/SettleUpVisualizer';
+import { SpendingInsightsTab } from '@/components/SpendingInsightsTab';
+import { ActivityFeed } from '@/components/ActivityFeed';
+import { buildExpenseQueries } from '@/lib/query-builder';
+import { generateExpensesCSV, downloadCSV } from '@/lib/csv-export';
 import confetti from 'canvas-confetti';
 import Link from 'next/link';
 import {
@@ -44,7 +51,10 @@ import {
   Sparkles,
   ArrowRight,
   CheckCircle2,
-  HelpCircle,
+  PieChart,
+  Activity,
+  Database,
+  SlidersHorizontal,
 } from 'lucide-react';
 
 const CATEGORIES: { label: string; value: ExpenseCategory }[] = [
@@ -61,21 +71,39 @@ function GroupDetailContent() {
   const { user, loading: authLoading, getJWT } = useAuth();
   const params = useParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const groupId = (params?.id as string) || '';
 
   const [group, setGroup] = useState<GroupRow | null>(null);
   const [members, setMembers] = useState<MemberRow[]>([]);
   const [expenses, setExpenses] = useState<ExpenseRow[]>([]);
+  const [allExpenses, setAllExpenses] = useState<ExpenseRow[]>([]);
   const [splits, setSplits] = useState<SplitRow[]>([]);
   const [settlements, setSettlements] = useState<SettlementRow[]>([]);
 
-  const [activeTab, setActiveTab] = useState<'expenses' | 'balances' | 'settle' | 'members'>('expenses');
+  const [activeTab, setActiveTab] = useState<
+    'expenses' | 'balances' | 'settle' | 'insights' | 'activity' | 'members'
+  >('expenses');
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [copiedInvite, setCopiedInvite] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
+
+  // Filters State synced from URL params
+  const [filters, setFilters] = useState<FilterState>(() => ({
+    search: searchParams?.get('search') || '',
+    category: searchParams?.get('category') || 'all',
+    paidByMemberId: searchParams?.get('paidBy') || 'all',
+    startDate: searchParams?.get('start') || '',
+    endDate: searchParams?.get('end') || '',
+    minAmount: searchParams?.get('min') || '',
+    maxAmount: searchParams?.get('max') || '',
+    sortBy: (searchParams?.get('sort') as any) || 'newest',
+  }));
 
   // Pagination for expenses
-  const [page, setPage] = useState(1);
+  const initialPage = parseInt(searchParams?.get('page') || '1', 10);
+  const [page, setPage] = useState(isNaN(initialPage) ? 1 : initialPage);
   const limit = 10;
   const [totalExpenses, setTotalExpenses] = useState(0);
 
@@ -101,6 +129,25 @@ function GroupDetailContent() {
       router.push('/login');
     }
   }, [user, authLoading, router]);
+
+  // Sync filters & pagination to URL search params
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const urlParams = new URLSearchParams();
+    if (filters.search) urlParams.set('search', filters.search);
+    if (filters.category !== 'all') urlParams.set('category', filters.category);
+    if (filters.paidByMemberId !== 'all') urlParams.set('paidBy', filters.paidByMemberId);
+    if (filters.startDate) urlParams.set('start', filters.startDate);
+    if (filters.endDate) urlParams.set('end', filters.endDate);
+    if (filters.minAmount) urlParams.set('min', filters.minAmount);
+    if (filters.maxAmount) urlParams.set('max', filters.maxAmount);
+    if (filters.sortBy !== 'newest') urlParams.set('sort', filters.sortBy);
+    if (page > 1) urlParams.set('page', page.toString());
+
+    const qs = urlParams.toString();
+    const newPath = qs ? `${window.location.pathname}?${qs}` : window.location.pathname;
+    window.history.replaceState(null, '', newPath);
+  }, [filters, page]);
 
   // Load Group Metadata & Members
   const loadGroupAndMembers = useCallback(async () => {
@@ -134,42 +181,57 @@ function GroupDetailContent() {
     }
   }, [groupId, paidByMemberId]);
 
-  // Load Expenses with Relationships
+  // Load Filtered & Paginated Expenses using Appwrite TablesDB Query Operators
   const loadExpenses = useCallback(async () => {
     if (!groupId) return;
     try {
       const { tablesDB } = getAppwriteClient();
       const offset = (page - 1) * limit;
 
+      const minMinor = filters.minAmount ? Math.round(parseFloat(filters.minAmount) * 100) : undefined;
+      const maxMinor = filters.maxAmount ? Math.round(parseFloat(filters.maxAmount) * 100) : undefined;
+
+      const queries = buildExpenseQueries({
+        groupId,
+        category: filters.category,
+        paidByMemberId: filters.paidByMemberId,
+        search: filters.search,
+        startDate: filters.startDate,
+        endDate: filters.endDate,
+        minAmountMinor: minMinor,
+        maxAmountMinor: maxMinor,
+        sortBy: filters.sortBy,
+        limit,
+        offset,
+      });
+
       const res = await tablesDB.listRows<ExpenseRow>({
         databaseId: APPWRITE_CONFIG.databaseId,
         tableId: APPWRITE_CONFIG.tables.expenses,
-        queries: [
-          Query.equal('group', [groupId]),
-          Query.orderDesc('expenseDate'),
-          Query.limit(limit),
-          Query.offset(offset),
-          Query.select(['*', 'paidBy.*', 'splits.*']),
-        ],
+        queries,
       });
       setExpenses(res.rows);
       setTotalExpenses(res.total);
     } catch (err: any) {
       console.error('Error loading expenses:', err);
     }
-  }, [groupId, page, limit]);
+  }, [groupId, page, limit, filters]);
 
-  // Load All Splits and Settlements for Balance Calculation
+  // Load All Splits, Settlements, and All Group Expenses for Balance & Insights Calculation
   const loadLedgerData = useCallback(async () => {
     if (!groupId) return;
     try {
       const { tablesDB } = getAppwriteClient();
 
-      // All expenses for balance calculation
+      // All expenses for complete group balance math & insights
       const allExpensesRes = await tablesDB.listRows<ExpenseRow>({
         databaseId: APPWRITE_CONFIG.databaseId,
         tableId: APPWRITE_CONFIG.tables.expenses,
-        queries: [Query.equal('group', [groupId]), Query.limit(500)],
+        queries: [
+          Query.equal('group', [groupId]),
+          Query.limit(500),
+          Query.select(['*', 'paidBy.*', 'splits.*']),
+        ],
       });
 
       // All splits
@@ -191,6 +253,7 @@ function GroupDetailContent() {
         ],
       });
 
+      setAllExpenses(allExpensesRes.rows);
       setSplits(allSplitsRes.rows);
       setSettlements(allSettlementsRes.rows);
     } catch (err: any) {
@@ -211,6 +274,13 @@ function GroupDetailContent() {
       init();
     }
   }, [groupId, loadGroupAndMembers, loadExpenses, loadLedgerData]);
+
+  // Re-fetch expenses when filters or page change
+  useEffect(() => {
+    if (group) {
+      loadExpenses();
+    }
+  }, [filters, page, loadExpenses, group]);
 
   // Realtime Subscription with Polling Fallback
   useEffect(() => {
@@ -234,7 +304,7 @@ function GroupDetailContent() {
         }
       );
     } catch (e) {
-      console.warn('Realtime subscription not supported on this client, using polling:', e);
+      console.warn('Realtime subscription not supported on this client, using polling fallback:', e);
     }
 
     // 8-second polling fallback while tab is focused
@@ -247,13 +317,15 @@ function GroupDetailContent() {
 
     return () => {
       if (subPromise) {
-        subPromise.then((sub) => {
-          if (sub && typeof sub.unsubscribe === 'function') {
-            sub.unsubscribe();
-          } else if (sub && typeof sub.close === 'function') {
-            sub.close();
-          }
-        }).catch(() => {});
+        subPromise
+          .then((sub) => {
+            if (sub && typeof sub.unsubscribe === 'function') {
+              sub.unsubscribe();
+            } else if (sub && typeof sub.close === 'function') {
+              sub.close();
+            }
+          })
+          .catch(() => {});
       }
       clearInterval(interval);
     };
@@ -265,7 +337,7 @@ function GroupDetailContent() {
 
     const memberIds = members.map((m) => m.$id);
 
-    const expensesForBalance = expenses.map((e) => ({
+    const expensesForBalance = allExpenses.map((e) => ({
       paidByMemberId: typeof e.paidBy === 'object' ? e.paidBy.$id : (e.paidBy as string),
       amountMinor: e.amountMinor,
     }));
@@ -287,13 +359,87 @@ function GroupDetailContent() {
       splits: splitsForBalance,
       settlements: settlementsForBalance,
     });
-  }, [members, expenses, splits, settlements]);
+  }, [members, allExpenses, splits, settlements]);
 
   // Compute Minimal Settle-Up Payment Plan
   const settleUpPlan = useMemo(() => {
     if (balances.size === 0) return [];
     return calculateMinimalSettlements(balances);
   }, [balances]);
+
+  // Compute Naive Receipt-by-Receipt Repayment Count for Settle-Up Visualizer
+  const naiveCount = useMemo(() => {
+    const splitsWithPayer = splits.map((s) => {
+      let payerId: string | undefined;
+      if (s.expense && typeof s.expense === 'object') {
+        payerId = typeof s.expense.paidBy === 'object' ? s.expense.paidBy?.$id : (s.expense.paidBy as string);
+      }
+      if (!payerId) {
+        const expId = typeof s.expense === 'object' ? s.expense?.$id : (s.expense as string);
+        const matchExp = allExpenses.find((e) => e.$id === expId);
+        if (matchExp) {
+          payerId = typeof matchExp.paidBy === 'object' ? matchExp.paidBy?.$id : (matchExp.paidBy as string);
+        }
+      }
+      return {
+        memberId: typeof s.member === 'object' ? s.member.$id : (s.member as string),
+        shareMinor: s.shareMinor,
+        payerMemberId: payerId,
+      };
+    });
+    return calculateNaiveTransferCount(splitsWithPayer);
+  }, [splits, allExpenses]);
+
+  // Filter change handler
+  const handleFilterChange = (newFilters: FilterState) => {
+    setFilters(newFilters);
+    setPage(1); // Reset to page 1 on filter modification
+  };
+
+  // CSV Export Trigger
+  const handleExportCSV = async () => {
+    if (!group) return;
+    setIsExporting(true);
+    try {
+      const { tablesDB } = getAppwriteClient();
+      const minMinor = filters.minAmount ? Math.round(parseFloat(filters.minAmount) * 100) : undefined;
+      const maxMinor = filters.maxAmount ? Math.round(parseFloat(filters.maxAmount) * 100) : undefined;
+
+      // Query all matching expenses (up to 1000) for complete export
+      const queries = buildExpenseQueries({
+        groupId,
+        category: filters.category,
+        paidByMemberId: filters.paidByMemberId,
+        search: filters.search,
+        startDate: filters.startDate,
+        endDate: filters.endDate,
+        minAmountMinor: minMinor,
+        maxAmountMinor: maxMinor,
+        sortBy: filters.sortBy,
+        limit: 1000,
+        offset: 0,
+      });
+
+      const res = await tablesDB.listRows<ExpenseRow>({
+        databaseId: APPWRITE_CONFIG.databaseId,
+        tableId: APPWRITE_CONFIG.tables.expenses,
+        queries,
+      });
+
+      const csvContent = generateExpensesCSV({
+        expenses: res.rows,
+        members,
+        currency: group.currency,
+      });
+      const safeFilename = `${group.name.toLowerCase().replace(/[^a-z0-9]/g, '-')}-expenses.csv`;
+      downloadCSV(csvContent, safeFilename);
+    } catch (err: any) {
+      console.error('Export error:', err);
+      alert('Unable to export CSV: ' + err.message);
+    } finally {
+      setIsExporting(false);
+    }
+  };
 
   // Copy Invite Code helper
   const handleCopyInvite = () => {
@@ -431,7 +577,7 @@ function GroupDetailContent() {
 
   // Delete Expense
   const handleDeleteExpense = async (expenseId: string) => {
-    if (!confirm('Are you sure you want to delete this expense? All associated splits will be removed.')) {
+    if (!confirm('Are you sure you want to delete this expense? All associated splits will be removed via cascade delete.')) {
       return;
     }
 
@@ -538,7 +684,8 @@ function GroupDetailContent() {
     );
   }
 
-  const currencySymbol = group.currency === 'INR' ? '₹' : group.currency === 'EUR' ? '€' : group.currency === 'GBP' ? '£' : '$';
+  const currencySymbol =
+    group.currency === 'INR' ? '₹' : group.currency === 'EUR' ? '€' : group.currency === 'GBP' ? '£' : '$';
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col">
@@ -547,13 +694,24 @@ function GroupDetailContent() {
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
         {/* Navigation & Group Title Header */}
         <div className="mb-6">
-          <Link
-            href="/"
-            className="inline-flex items-center space-x-1.5 text-xs font-semibold text-slate-500 hover:text-emerald-600 transition-colors mb-3"
-          >
-            <ArrowLeft className="w-3.5 h-3.5" />
-            <span>Back to Dashboard</span>
-          </Link>
+          <div className="flex items-center justify-between mb-3">
+            <Link
+              href="/"
+              className="inline-flex items-center space-x-1.5 text-xs font-semibold text-slate-500 hover:text-emerald-600 transition-colors"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" />
+              <span>Back to Dashboard</span>
+            </Link>
+
+            {/* Under the Hood Pill */}
+            <Link
+              href="/under-the-hood"
+              className="inline-flex items-center space-x-1.5 px-3 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full text-xs font-bold hover:bg-emerald-100 transition-colors"
+            >
+              <Database className="w-3 h-3 text-emerald-600" />
+              <span>TablesDB Architecture</span>
+            </Link>
+          </div>
 
           <div className="sm:flex sm:items-center sm:justify-between bg-white rounded-2xl p-6 border border-slate-200 shadow-xs">
             <div>
@@ -591,7 +749,7 @@ function GroupDetailContent() {
           </div>
         </div>
 
-        {/* Four Tab Navigation */}
+        {/* 6 Tabs Navigation */}
         <div className="flex space-x-2 border-b border-slate-200 mb-6 overflow-x-auto pb-1">
           <button
             onClick={() => setActiveTab('expenses')}
@@ -630,6 +788,30 @@ function GroupDetailContent() {
           </button>
 
           <button
+            onClick={() => setActiveTab('insights')}
+            className={`inline-flex items-center space-x-2 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all whitespace-nowrap cursor-pointer ${
+              activeTab === 'insights'
+                ? 'bg-emerald-600 text-white shadow-xs'
+                : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+            }`}
+          >
+            <PieChart className="w-4 h-4" />
+            <span>Insights</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('activity')}
+            className={`inline-flex items-center space-x-2 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all whitespace-nowrap cursor-pointer ${
+              activeTab === 'activity'
+                ? 'bg-emerald-600 text-white shadow-xs'
+                : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+            }`}
+          >
+            <Activity className="w-4 h-4" />
+            <span>Activity</span>
+          </button>
+
+          <button
             onClick={() => setActiveTab('members')}
             className={`inline-flex items-center space-x-2 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all whitespace-nowrap cursor-pointer ${
               activeTab === 'members'
@@ -645,7 +827,7 @@ function GroupDetailContent() {
         {/* TAB 1: EXPENSES */}
         {activeTab === 'expenses' && (
           <div className="space-y-6">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
               <div>
                 <h2 className="text-lg font-bold text-slate-900">Expenses Ledger</h2>
                 <p className="text-xs text-slate-500">
@@ -655,27 +837,61 @@ function GroupDetailContent() {
 
               <button
                 onClick={openAddExpenseModal}
-                className="inline-flex items-center space-x-2 px-4 py-2 bg-emerald-600 text-white rounded-xl text-sm font-semibold hover:bg-emerald-700 shadow-sm cursor-pointer"
+                className="inline-flex items-center space-x-2 px-4 py-2 bg-emerald-600 text-white rounded-xl text-sm font-semibold hover:bg-emerald-700 shadow-sm cursor-pointer self-start sm:self-auto"
               >
                 <Plus className="w-4 h-4" />
                 <span>Add Expense</span>
               </button>
             </div>
 
+            {/* Standout Feature 3.1 & 3.4: Filter Bar with Fulltext Search & CSV Export */}
+            <ExpenseFiltersBar
+              filters={filters}
+              onChange={handleFilterChange}
+              members={members}
+              currencySymbol={currencySymbol}
+              onExportCSV={handleExportCSV}
+              isExporting={isExporting}
+            />
+
             {expenses.length === 0 ? (
               <div className="bg-white rounded-2xl border border-dashed border-slate-300 p-10 text-center max-w-lg mx-auto">
                 <Receipt className="w-10 h-10 text-slate-400 mx-auto mb-3" />
-                <h3 className="text-base font-bold text-slate-900">No expenses recorded yet</h3>
+                <h3 className="text-base font-bold text-slate-900">
+                  {totalExpenses > 0 ? 'No matching expenses found' : 'No expenses recorded yet'}
+                </h3>
                 <p className="text-xs text-slate-500 mt-1 mb-5">
-                  Click below to record your first shared expense. Remainder cents will be distributed deterministically.
+                  {totalExpenses > 0
+                    ? 'Try adjusting your filters or clearing search criteria to see more expenses.'
+                    : 'Click below to record your first shared expense. Remainder cents will be distributed deterministically.'}
                 </p>
-                <button
-                  onClick={openAddExpenseModal}
-                  className="inline-flex items-center space-x-2 px-4 py-2 bg-emerald-600 text-white rounded-xl text-sm font-semibold hover:bg-emerald-700 cursor-pointer"
-                >
-                  <Plus className="w-4 h-4" />
-                  <span>Add First Expense</span>
-                </button>
+                {totalExpenses > 0 ? (
+                  <button
+                    onClick={() =>
+                      handleFilterChange({
+                        search: '',
+                        category: 'all',
+                        paidByMemberId: 'all',
+                        startDate: '',
+                        endDate: '',
+                        minAmount: '',
+                        maxAmount: '',
+                        sortBy: 'newest',
+                      })
+                    }
+                    className="inline-flex items-center space-x-2 px-4 py-2 bg-slate-100 text-slate-700 rounded-xl text-sm font-semibold hover:bg-slate-200 cursor-pointer"
+                  >
+                    <span>Clear All Filters</span>
+                  </button>
+                ) : (
+                  <button
+                    onClick={openAddExpenseModal}
+                    className="inline-flex items-center space-x-2 px-4 py-2 bg-emerald-600 text-white rounded-xl text-sm font-semibold hover:bg-emerald-700 cursor-pointer"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>Add First Expense</span>
+                  </button>
+                )}
               </div>
             ) : (
               <div className="space-y-3">
@@ -705,7 +921,9 @@ function GroupDetailContent() {
                               </span>
                             </div>
                             <p className="text-xs text-slate-500 mt-0.5 flex items-center space-x-2">
-                              <span>Paid by <strong className="text-slate-700">{payerName}</strong></span>
+                              <span>
+                                Paid by <strong className="text-slate-700">{payerName}</strong>
+                              </span>
                               <span>•</span>
                               <span>{new Date(exp.expenseDate).toLocaleDateString()}</span>
                               <span>•</span>
@@ -723,9 +941,7 @@ function GroupDetailContent() {
 
                           <div className="flex items-center space-x-1 pl-2 border-l border-slate-200">
                             <button
-                              onClick={() =>
-                                setExpandedExpenseId(isExpanded ? null : exp.$id)
-                              }
+                              onClick={() => setExpandedExpenseId(isExpanded ? null : exp.$id)}
                               title="Toggle Splits"
                               className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg cursor-pointer"
                             >
@@ -922,21 +1138,16 @@ function GroupDetailContent() {
           </div>
         )}
 
-        {/* TAB 3: SETTLE UP */}
+        {/* TAB 3: SETTLE UP (Standout Feature 3.2: Settle-up Visualized) */}
         {activeTab === 'settle' && (
           <div className="space-y-6">
-            <div className="bg-emerald-900 text-white rounded-2xl p-6 shadow-md">
-              <div className="flex items-start space-x-3">
-                <Sparkles className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
-                <div>
-                  <h3 className="font-bold text-base">Greedy Minimal Settle-Up Plan</h3>
-                  <p className="text-xs text-emerald-200 mt-1">
-                    Instead of circular repayments where everyone pays everyone, our greedy bipartite matching
-                    algorithm pairs the largest debtor with the largest creditor to resolve all debts in the fewest possible transfers.
-                  </p>
-                </div>
-              </div>
-            </div>
+            {/* Visual Minimal Settle-Up Comparison Card & Graph */}
+            <SettleUpVisualizer
+              payments={settleUpPlan}
+              members={members}
+              currency={group.currency}
+              naiveCount={naiveCount}
+            />
 
             {settleUpPlan.length === 0 ? (
               <div className="bg-white rounded-2xl border border-slate-200 p-10 text-center max-w-md mx-auto">
@@ -953,8 +1164,10 @@ function GroupDetailContent() {
                 </h3>
 
                 {settleUpPlan.map((payment, idx) => {
-                  const debtor = members.find((m) => m.$id === payment.fromMemberId)?.displayName || 'Member';
-                  const creditor = members.find((m) => m.$id === payment.toMemberId)?.displayName || 'Member';
+                  const debtor =
+                    members.find((m) => m.$id === payment.fromMemberId)?.displayName || 'Member';
+                  const creditor =
+                    members.find((m) => m.$id === payment.toMemberId)?.displayName || 'Member';
 
                   return (
                     <div
@@ -1042,7 +1255,31 @@ function GroupDetailContent() {
           </div>
         )}
 
-        {/* TAB 4: MEMBERS */}
+        {/* TAB 4: INSIGHTS (Standout Feature 3.3: Spending Insights) */}
+        {activeTab === 'insights' && (
+          <div className="space-y-6">
+            <SpendingInsightsTab
+              expenses={allExpenses}
+              members={members}
+              splits={splits}
+              currency={group.currency}
+            />
+          </div>
+        )}
+
+        {/* TAB 5: ACTIVITY (Standout Feature 3.5: Chronological Activity Feed) */}
+        {activeTab === 'activity' && (
+          <div className="space-y-6">
+            <ActivityFeed
+              group={group}
+              members={members}
+              expenses={allExpenses}
+              settlements={settlements}
+            />
+          </div>
+        )}
+
+        {/* TAB 6: MEMBERS */}
         {activeTab === 'members' && (
           <div className="space-y-6">
             <div className="flex items-center justify-between">
@@ -1258,11 +1495,17 @@ function GroupDetailContent() {
                   </div>
                   <div className="space-y-1 text-slate-700">
                     {members.map((m) => {
-                      const shareVal = targetAmountMinor > 0 ? (targetAmountMinor / members.length / 100).toFixed(2) : '0.00';
+                      const shareVal =
+                        targetAmountMinor > 0
+                          ? (targetAmountMinor / members.length / 100).toFixed(2)
+                          : '0.00';
                       return (
                         <div key={m.$id} className="flex justify-between items-center text-xs">
                           <span>{m.displayName}</span>
-                          <span className="font-bold">{currencySymbol}{shareVal}</span>
+                          <span className="font-bold">
+                            {currencySymbol}
+                            {shareVal}
+                          </span>
                         </div>
                       );
                     })}
@@ -1279,7 +1522,8 @@ function GroupDetailContent() {
                           : 'text-amber-600'
                       }`}
                     >
-                      Sum: {formatCurrency(customSumMinor, group.currency)} / {formatCurrency(targetAmountMinor, group.currency)}
+                      Sum: {formatCurrency(customSumMinor, group.currency)} /{' '}
+                      {formatCurrency(targetAmountMinor, group.currency)}
                     </span>
                   </div>
 
@@ -1328,7 +1572,10 @@ function GroupDetailContent() {
                 </button>
                 <button
                   type="submit"
-                  disabled={expenseSubmitting || (splitType === 'custom' && customSumMinor !== targetAmountMinor)}
+                  disabled={
+                    expenseSubmitting ||
+                    (splitType === 'custom' && customSumMinor !== targetAmountMinor)
+                  }
                   className="px-5 py-2 bg-emerald-600 text-white rounded-xl text-xs font-semibold hover:bg-emerald-700 disabled:opacity-60 flex items-center space-x-1.5 shadow-xs cursor-pointer"
                 >
                   {expenseSubmitting && <Loader2 className="w-3.5 h-3.5 animate-spin" />}

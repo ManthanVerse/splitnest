@@ -5,6 +5,8 @@ import {
   validateCustomSplits,
   calculateBalances,
   calculateMinimalSettlements,
+  calculateNaiveTransferCount,
+  calculatePairwiseTransferCount,
 } from '../split-engine';
 
 describe('SplitEngine Core Logic Tests', () => {
@@ -146,5 +148,45 @@ describe('SplitEngine Core Logic Tests', () => {
 
     const plan = calculateMinimalSettlements(postBalances);
     assert.strictEqual(plan.length, 0);
+  });
+
+  it('6. Settle-up visualization: Naive vs Minimal transfer count comparisons', () => {
+    // 4 Roommates: A, B, C, D
+    // A paid $30 for B (B owes A $30)
+    // B paid $30 for C (C owes B $30)
+    // C paid $30 for D (D owes C $30)
+    const splits = [
+      { memberId: 'B', shareMinor: 3000, payerMemberId: 'A' },
+      { memberId: 'C', shareMinor: 3000, payerMemberId: 'B' },
+      { memberId: 'D', shareMinor: 3000, payerMemberId: 'C' },
+    ];
+
+    const naiveCount = calculateNaiveTransferCount(splits);
+    assert.strictEqual(naiveCount, 3, 'Naive count requires 3 separate repayments');
+
+    const balances = new Map<string, any>();
+    balances.set('A', { netBalanceMinor: 3000 });
+    balances.set('B', { netBalanceMinor: 0 });
+    balances.set('C', { netBalanceMinor: 0 });
+    balances.set('D', { netBalanceMinor: -3000 });
+
+    const minimalPlan = calculateMinimalSettlements(balances);
+    assert.strictEqual(minimalPlan.length, 1, 'SplitNest greedy algorithm simplifies 3 naive transfers to 1 direct payment');
+    assert.strictEqual(minimalPlan[0].fromMemberId, 'D');
+    assert.strictEqual(minimalPlan[0].toMemberId, 'A');
+    assert.strictEqual(minimalPlan[0].amountMinor, 3000);
+  });
+
+  it('7. Already settled group has 0 naive and 0 minimal transfers', () => {
+    const splits: any[] = [];
+    const naiveCount = calculateNaiveTransferCount(splits);
+    assert.strictEqual(naiveCount, 0);
+
+    const balances = new Map<string, any>();
+    balances.set('A', { netBalanceMinor: 0 });
+    balances.set('B', { netBalanceMinor: 0 });
+
+    const minimalPlan = calculateMinimalSettlements(balances);
+    assert.strictEqual(minimalPlan.length, 0);
   });
 });

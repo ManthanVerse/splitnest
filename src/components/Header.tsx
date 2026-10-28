@@ -28,6 +28,14 @@ export function Header() {
               </span>
             </div>
           </Link>
+
+          <Link
+            href="/under-the-hood"
+            className="hidden md:inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-600 hover:text-emerald-700 hover:bg-emerald-50 border border-slate-200 hover:border-emerald-200 transition-all cursor-pointer"
+          >
+            <Database className="w-3.5 h-3.5 text-emerald-600" />
+            <span>Under the Hood</span>
+          </Link>
         </div>
 
         {user && (
