@@ -87,7 +87,8 @@ async function ensureVarcharColumn(
         key,
         size,
         required,
-        xdefault: xdefault ?? null,
+        // Appwrite does not allow a default value on a required column.
+        ...(required || xdefault === undefined ? {} : { xdefault }),
       });
       await wait(600);
     } else {
@@ -113,7 +114,8 @@ async function ensureIntegerColumn(
         tableId,
         key,
         required,
-        xdefault: xdefault ?? null,
+        // Appwrite does not allow a default value on a required column.
+        ...(required || xdefault === undefined ? {} : { xdefault }),
       });
       await wait(600);
     } else {
@@ -165,7 +167,8 @@ async function ensureEnumColumn(
         key,
         elements,
         required,
-        xdefault: xdefault ?? null,
+        // Appwrite does not allow a default value on a required column.
+        ...(required || xdefault === undefined ? {} : { xdefault }),
       });
       await wait(600);
     } else {
@@ -256,7 +259,8 @@ export async function setupSplitNestDatabase() {
   // 3. Columns for Groups
   console.log('\n--- Configuring "groups" table columns & indexes ---');
   await ensureVarcharColumn('groups', 'name', 255, true);
-  await ensureVarcharColumn('groups', 'currency', 10, true, 'USD');
+  // Required columns cannot have an Appwrite default. The app must provide currency (e.g. "USD").
+  await ensureVarcharColumn('groups', 'currency', 10, true);
   await ensureVarcharColumn('groups', 'inviteCode', 32, true);
   await ensureVarcharColumn('groups', 'teamId', 64, true);
   await ensureVarcharColumn('groups', 'createdBy', 64, true);
@@ -285,11 +289,11 @@ export async function setupSplitNestDatabase() {
     'expenses',
     'category',
     ['groceries', 'rent', 'utilities', 'food', 'travel', 'entertainment', 'other'],
-    true,
-    'other'
+    true
   );
   await ensureDatetimeColumn('expenses', 'expenseDate', true);
-  await ensureEnumColumn('expenses', 'splitType', ['equal', 'custom'], true, 'equal');
+  // Required columns cannot have an Appwrite default. The app must provide splitType (e.g. "equal").
+  await ensureEnumColumn('expenses', 'splitType', ['equal', 'custom'], true);
   await ensureRelationship({
     tableId: 'expenses',
     relatedTableId: 'groups',
