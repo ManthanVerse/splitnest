@@ -9,7 +9,7 @@
     "lint": "eslint",
     "setup:db": "tsx scripts/setup.ts",
     "seed": "tsx scripts/seed.ts",
-    "test": "tsx --test src/lib/__tests__/split-engine.test.ts"
+    "test": "tsx --test src/lib/__tests__/split-engine.test.ts src/lib/__tests__/features.test.ts"
   },
   "dependencies": {
     "appwrite": "^29.1.0",
