@@ -71,6 +71,7 @@ function GroupDetailContent() {
 
   const [activeTab, setActiveTab] = useState<'expenses' | 'balances' | 'settle' | 'members'>('expenses');
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [copiedInvite, setCopiedInvite] = useState(false);
 
   // Pagination for expenses
@@ -127,6 +128,9 @@ function GroupDetailContent() {
       }
     } catch (err: any) {
       console.error('Error loading group:', err);
+      setLoadError(
+        err.message || 'Unable to load group. You might not have access to this team.'
+      );
     }
   }, [groupId, paidByMemberId]);
 
@@ -501,6 +505,30 @@ function GroupDetailContent() {
     const v = parseFloat(amountStr || '0');
     return isNaN(v) ? 0 : Math.round(v * 100);
   }, [amountStr]);
+
+  if (loadError) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex flex-col">
+        <Header />
+        <main className="flex-1 max-w-lg w-full mx-auto px-4 py-16 flex items-center justify-center">
+          <div className="bg-white rounded-3xl p-8 border border-red-200 shadow-xl text-center w-full">
+            <div className="w-14 h-14 rounded-2xl bg-red-50 text-red-600 flex items-center justify-center mx-auto mb-4 border border-red-100">
+              <AlertCircle className="w-7 h-7" />
+            </div>
+            <h2 className="text-xl font-bold text-slate-900 mb-2">Unable to Load Group</h2>
+            <p className="text-sm text-slate-600 mb-6">{loadError}</p>
+            <Link
+              href="/"
+              className="inline-flex items-center space-x-2 px-5 py-2.5 bg-emerald-600 text-white rounded-xl text-sm font-semibold hover:bg-emerald-700 transition-colors shadow-xs"
+            >
+              <ArrowLeft className="w-4 h-4" />
+              <span>Return to Dashboard</span>
+            </Link>
+          </div>
+        </main>
+      </div>
+    );
+  }
 
   if (loading || !group) {
     return (

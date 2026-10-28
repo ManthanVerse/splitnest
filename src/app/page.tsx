@@ -21,6 +21,7 @@ import {
   X,
   Copy,
   Check,
+  AlertCircle,
 } from 'lucide-react';
 
 export default function DashboardPage() {
@@ -37,7 +38,8 @@ export default function DashboardPage() {
   const [currency, setCurrency] = useState('USD');
   const [inviteCode, setInviteCode] = useState('');
   const [actionLoading, setActionLoading] = useState(false);
-  const [formError, setFormError] = useState<string | null>(null);
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [joinError, setJoinError] = useState<string | null>(null);
 
   // Protected route guard
   useEffect(() => {
@@ -84,7 +86,7 @@ export default function DashboardPage() {
 
   const handleCreateGroup = async (e: React.FormEvent) => {
     e.preventDefault();
-    setFormError(null);
+    setCreateError(null);
     setActionLoading(true);
 
     try {
@@ -100,7 +102,7 @@ export default function DashboardPage() {
 
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data.error || 'Failed to create group');
+        throw new Error(data.error || `Server error (${res.status}): Failed to create group`);
       }
 
       setCreateModalOpen(false);
@@ -109,7 +111,7 @@ export default function DashboardPage() {
       router.push(`/groups/${data.group.$id}`);
     } catch (err: any) {
       console.error(err);
-      setFormError(err.message || 'Error creating group');
+      setCreateError(err.message || 'Error creating group');
     } finally {
       setActionLoading(false);
     }
@@ -117,7 +119,7 @@ export default function DashboardPage() {
 
   const handleJoinGroup = async (e: React.FormEvent) => {
     e.preventDefault();
-    setFormError(null);
+    setJoinError(null);
     setActionLoading(true);
 
     try {
@@ -133,7 +135,7 @@ export default function DashboardPage() {
 
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data.error || 'Failed to join group');
+        throw new Error(data.error || `Server error (${res.status}): Failed to join group`);
       }
 
       setJoinModalOpen(false);
@@ -142,7 +144,7 @@ export default function DashboardPage() {
       router.push(`/groups/${data.group.$id}`);
     } catch (err: any) {
       console.error(err);
-      setFormError(err.message || 'Error joining group');
+      setJoinError(err.message || 'Error joining group');
     } finally {
       setActionLoading(false);
     }
@@ -175,7 +177,7 @@ export default function DashboardPage() {
           <div className="mt-4 sm:mt-0 flex flex-wrap gap-2.5">
             <button
               onClick={() => {
-                setFormError(null);
+                setJoinError(null);
                 setJoinModalOpen(true);
               }}
               className="inline-flex items-center space-x-2 px-4 py-2.5 bg-white border border-slate-300 rounded-xl text-sm font-semibold text-slate-700 hover:bg-slate-50 hover:border-slate-400 active:scale-[0.99] shadow-xs transition-all cursor-pointer"
@@ -186,7 +188,7 @@ export default function DashboardPage() {
 
             <button
               onClick={() => {
-                setFormError(null);
+                setCreateError(null);
                 setCreateModalOpen(true);
               }}
               className="inline-flex items-center space-x-2 px-4 py-2.5 bg-emerald-600 border border-transparent rounded-xl text-sm font-semibold text-white hover:bg-emerald-700 active:scale-[0.99] shadow-sm shadow-emerald-600/30 transition-all cursor-pointer"
@@ -311,9 +313,10 @@ export default function DashboardPage() {
               Creates a group ledger and an isolated Appwrite Team for row permissions.
             </p>
 
-            {formError && (
-              <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-xl text-xs text-red-700">
-                {formError}
+            {createError && (
+              <div className="mb-4 p-3.5 bg-red-50 border border-red-200 rounded-xl text-xs text-red-700 flex items-start space-x-2">
+                <AlertCircle className="w-4 h-4 shrink-0 text-red-600 mt-0.5" />
+                <span>{createError}</span>
               </div>
             )}
 
@@ -386,9 +389,10 @@ export default function DashboardPage() {
               Enter the unique invite code provided by your roommate or friend.
             </p>
 
-            {formError && (
-              <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-xl text-xs text-red-700">
-                {formError}
+            {joinError && (
+              <div className="mb-4 p-3.5 bg-red-50 border border-red-200 rounded-xl text-xs text-red-700 flex items-start space-x-2">
+                <AlertCircle className="w-4 h-4 shrink-0 text-red-600 mt-0.5" />
+                <span>{joinError}</span>
               </div>
             )}
 

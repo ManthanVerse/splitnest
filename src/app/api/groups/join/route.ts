@@ -5,6 +5,13 @@ import { APPWRITE_CONFIG } from '@/lib/appwrite/config';
 import { ID, Permission, Role, Query } from 'node-appwrite';
 
 export async function POST(req: NextRequest) {
+  let addedMembershipId: string | null = null;
+  let createdMemberId: string | null = null;
+  let targetTeamId: string | null = null;
+
+  const { tablesDB, teams } = createAdminClient();
+  const databaseId = APPWRITE_CONFIG.databaseId;
+
   try {
     const { user } = await verifyAuth(req);
     const body = await req.json();
@@ -17,9 +24,6 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { tablesDB, teams } = createAdminClient();
-    const databaseId = APPWRITE_CONFIG.databaseId;
-
     // 1. Find group by invite code
     const groupResult = await tablesDB.listRows({
       databaseId,
@@ -29,14 +33,15 @@ export async function POST(req: NextRequest) {
 
     if (groupResult.total === 0) {
       return NextResponse.json(
-        { error: 'Invalid invite code. No group found.' },
+        { error: 'Invalid invite code. No group found with this code.' },
         { status: 404 }
       );
     }
 
     const group = groupResult.rows[0];
+    targetTeamId = group.teamId;
 
-    // 2. Check if already a member
+    // 2. Check if already a member in the database
     const existingMember = await tablesDB.listRows({
       databaseId,
       tableId: 'members',
@@ -56,16 +61,13 @@ export async function POST(req: NextRequest) {
     }
 
     // 3. Add user to Appwrite Team
-    try {
-      await teams.createMembership({
-        teamId: group.teamId,
-        roles: ['member'],
-        userId: user.$id,
-        email: user.email,
-      });
-    } catch (teamErr: any) {
-      console.warn('Membership addition note (check teams.write API scope):', teamErr.message);
-    }
+    const membership = await teams.createMembership({
+      teamId: group.teamId,
+      roles: ['member'],
+      userId: user.$id,
+      email: user.email,
+    });
+    addedMembershipId = membership.$id;
 
     const teamPermissions = [
       Permission.read(Role.team(group.teamId)),
@@ -85,6 +87,7 @@ export async function POST(req: NextRequest) {
       },
       permissions: teamPermissions,
     });
+    createdMemberId = member.$id;
 
     return NextResponse.json({
       success: true,
@@ -92,10 +95,33 @@ export async function POST(req: NextRequest) {
       member,
     });
   } catch (err: any) {
-    console.error('Error in POST /api/groups/join:', err);
+    console.error('Error in POST /api/groups/join, rolling back:', err);
+
+    // Rollback any partially created resources
+    if (createdMemberId) {
+      try {
+        await tablesDB.deleteRow({ databaseId, tableId: 'members', rowId: createdMemberId });
+      } catch (rbErr) {
+        console.error('Rollback failed for member row:', rbErr);
+      }
+    }
+
+    if (addedMembershipId && targetTeamId) {
+      try {
+        await teams.deleteMembership({ teamId: targetTeamId, membershipId: addedMembershipId });
+      } catch (rbErr) {
+        console.error('Rollback failed for team membership:', rbErr);
+      }
+    }
+
+    const statusCode =
+      typeof err.code === 'number' && err.code >= 400 && err.code < 600
+        ? err.code
+        : 500;
+
     return NextResponse.json(
       { error: err.message || 'Failed to join group' },
-      { status: err.code === 401 ? 401 : 500 }
+      { status: statusCode }
     );
   }
 }
