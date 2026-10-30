@@ -1,8 +1,32 @@
+<div align="center">
+
 # SplitNest 🪺
 
-> **Minimal Settle-Up Expense Tracker for Roommates & Trips**  
-> Built for the **Appwrite Databases Hackathon (October 19–31, 2026)**  
-> Built strictly on **Appwrite TablesDB**, **Appwrite Auth**, and **Appwrite Teams**.
+**Minimal Settle-Up Expense Tracker for Roommates & Trips**
+
+Built for the **Appwrite Databases Hackathon (October 19–31, 2026)**  
+Built strictly on **Appwrite TablesDB**, **Appwrite Auth**, and **Appwrite Teams**.
+
+<br />
+
+<img src="screenshots/group-ledger.png" alt="SplitNest group expenses ledger" width="900" />
+
+</div>
+
+---
+
+## 📑 Table of Contents
+
+- [Pitch & Problem Solved](#-pitch--problem-solved)
+- [Live Demo & Quick Credentials](#-live-demo--quick-credentials)
+- [Screenshots](#-screenshots)
+- [Tech Stack](#-tech-stack)
+- [Appwrite TablesDB Architecture](#%EF%B8%8F-appwrite-tablesdb-architecture)
+- [Settle-Up Algorithm & Time Complexity](#-settle-up-algorithm--time-complexity)
+- [Local Development & Setup](#-local-development--setup)
+- [Verification & Security Audit](#-verification--security-audit)
+- [Video Demo Outline](#-video-demo-outline-2-3-minutes)
+- [License](#-license)
 
 ---
 
@@ -25,31 +49,38 @@ All balances are calculated with **zero floating-point drift** using strictly ty
   - **Password**: `DemoPassword123!`
   - **Group Name**: `Flat 402` (Invite Code: `FLAT402X`)
 
+<div align="center">
+  <img src="screenshots/login.png" alt="SplitNest login page" width="800" />
+  <br />
+  <sub><b>Sign in or sign up</b> with email & password, powered by Appwrite Auth.</sub>
+</div>
+
 ---
 
 ## 📸 Screenshots
 
-### Sign in / Sign up
-Email & password authentication powered by Appwrite Auth.
+### 🏠 Dashboard
+Your groups at a glance. Create a new group or join an existing one with an invite code.
 
-![SplitNest login page](docs/screenshots/login.png)
+<div align="center">
+  <img src="screenshots/dashboard.png" alt="SplitNest dashboard" width="900" />
+</div>
 
-### Dashboard
-Your groups at a glance, with options to create a group or join one with an invite code.
+### 🧾 Group Ledger
+The expenses ledger with categories, payer, split type, and tabs for **Balances**, **Settle Up**, and **Members**. Every expense and its participant splits are committed atomically to TablesDB.
 
-![SplitNest dashboard](docs/screenshots/dashboard.png)
+<div align="center">
+  <img src="screenshots/group-ledger.png" alt="SplitNest group expenses ledger" width="900" />
+</div>
 
-### Group Ledger
-Expenses ledger with categories, split types, and tabs for Balances, Settle Up, and Members. Every expense and its splits are committed atomically to TablesDB.
+### 🔍 Under the Hood
+A built-in architecture page (`/under-the-hood`) that explains exactly how SplitNest uses Appwrite TablesDB.
 
-![SplitNest group expenses ledger](docs/screenshots/group-ledger.png)
-
-### Under the Hood
-A built-in architecture walkthrough of how SplitNest uses Appwrite TablesDB: typed columns, relationships, atomic transactions, row-level security, indexes, and Realtime.
-
-![Under the Hood: typed columns and relationships](docs/screenshots/under-the-hood-1.png)
-
-![Under the Hood: transactions, row-level security, indexes and realtime](docs/screenshots/under-the-hood-2.png)
+<div align="center">
+  <img src="screenshots/under-the-hood-1.png" alt="Under the Hood: typed columns and relationships" width="900" />
+  <br /><br />
+  <img src="screenshots/under-the-hood-2.png" alt="Under the Hood: transactions, row-level security, indexes and realtime" width="900" />
+</div>
 
 ---
 
@@ -130,6 +161,12 @@ Financial applications written with JavaScript floating-point numbers often suff
 - **Cascade Deletion**: Deleting a group cascades to all expenses, splits, settlements, and member records. Deleting an expense cascades to its splits.
 - **Restrict Deletion**: Members who have paid active expenses or have unpaid split assignments cannot be deleted (`RelationMutate.Restrict`), protecting ledger integrity.
 
+<div align="center">
+  <img src="screenshots/under-the-hood-1.png" alt="Typed columns, integer minor units, and cascade/restrict relationships explained in the app" width="850" />
+  <br />
+  <sub>Sections 1 and 2 as explained inside the app's <b>Under the Hood</b> page.</sub>
+</div>
+
 ### 3. Multi-Row Atomic Transactions
 Recording an expense with multiple custom participant splits requires inserting 1 `expense` row and $N$ `split` rows. SplitNest utilizes Appwrite TablesDB atomic transactions:
 ```typescript
@@ -173,6 +210,12 @@ realtime.subscribe([
   loadLedgerData();
 });
 ```
+
+<div align="center">
+  <img src="screenshots/under-the-hood-2.png" alt="Atomic transactions, row-level security, indexes, and realtime explained in the app" width="850" />
+  <br />
+  <sub>Sections 3 to 6 as explained inside the app's <b>Under the Hood</b> page.</sub>
+</div>
 
 ---
 
