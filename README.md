@@ -27,6 +27,32 @@ All balances are calculated with **zero floating-point drift** using strictly ty
 
 ---
 
+## 📸 Screenshots
+
+### Sign in / Sign up
+Email & password authentication powered by Appwrite Auth.
+
+![SplitNest login page](docs/screenshots/login.png)
+
+### Dashboard
+Your groups at a glance, with options to create a group or join one with an invite code.
+
+![SplitNest dashboard](docs/screenshots/dashboard.png)
+
+### Group Ledger
+Expenses ledger with categories, split types, and tabs for Balances, Settle Up, and Members. Every expense and its splits are committed atomically to TablesDB.
+
+![SplitNest group expenses ledger](docs/screenshots/group-ledger.png)
+
+### Under the Hood
+A built-in architecture walkthrough of how SplitNest uses Appwrite TablesDB: typed columns, relationships, atomic transactions, row-level security, indexes, and Realtime.
+
+![Under the Hood: typed columns and relationships](docs/screenshots/under-the-hood-1.png)
+
+![Under the Hood: transactions, row-level security, indexes and realtime](docs/screenshots/under-the-hood-2.png)
+
+---
+
 ## 🧰 Tech Stack
 
 SplitNest uses exclusively free, open-source libraries:
